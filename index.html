@@ -4,155 +4,175 @@
 <title>AR Zombie Shooter</title>
 <style>
 html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,sans-serif;color:#fff;touch-action:none;user-select:none}
-video,canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
-#hud{position:fixed;inset:0;pointer-events:none;padding:env(safe-area-inset-top,0px) 12px 0}
-#top{display:flex;justify-content:space-between;gap:8px;padding-top:10px;font-weight:700;text-shadow:0 1px 3px #000}
+#v{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none}
+#hud{padding:env(safe-area-inset-top,0px) 12px 0;display:none}
+#top{display:flex;justify-content:space-between;padding-top:10px;font-weight:700;text-shadow:0 1px 3px #000}
 #bar{height:10px;background:#0008;border-radius:5px;overflow:hidden;margin-top:6px}
 #hp{height:100%;width:100%;background:#e33;transition:width .2s}
-#cross{position:fixed;left:50%;top:50%;width:34px;height:34px;margin:-17px;border:2px solid #fff9;border-radius:50%}
+#cross{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px;border:2px solid #fff9;border-radius:50%;display:none}
 #cross:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;background:#f33;border-radius:50%}
-#fire{position:fixed;right:20px;bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:3px solid #fff;background:#e33c;color:#fff;font-size:18px;font-weight:800;pointer-events:auto}
-#flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .25s}
-#msg{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000c;text-align:center;padding:24px}
-#msg h1{margin:0;font-size:32px}#msg p{margin:0;max-width:380px;opacity:.85}
-#msg button{font-size:20px;font-weight:800;padding:14px 36px;border:0;border-radius:30px;background:#3c3;color:#000}
+#hint{position:absolute;left:12px;right:12px;bottom:calc(150px + env(safe-area-inset-bottom,0px));text-align:center;font-weight:700;text-shadow:0 1px 4px #000;display:none}
+#fire{position:absolute;right:20px;bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:3px solid #fff;background:#e33c;color:#fff;font-size:18px;font-weight:800;pointer-events:auto;display:none}
+#flash{position:absolute;inset:0;background:#f00;opacity:0;transition:opacity .25s}
+#msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000d;text-align:center;padding:24px;pointer-events:auto}
+#msg h1{margin:0;font-size:30px}#msg p{margin:0;max-width:380px;opacity:.85}
+#msg button{font-size:20px;font-weight:800;padding:14px 32px;border:0;border-radius:30px;background:#3c3;color:#000}
 </style></head><body>
 <video id="v" playsinline muted autoplay></video>
-<div id="hud">
- <div id="top"><span id="lv">Level 1</span><span id="kl">Kills 0/8</span></div>
- <div id="bar"><div id="hp"></div></div>
+<div id="ui">
+ <div id="hud"><div id="top"><span id="lv"></span><span id="kl"></span></div><div id="bar"><div id="hp"></div></div></div>
+ <div id="cross"></div><div id="flash"></div><div id="hint"></div>
+ <button id="fire">FIRE</button>
+ <div id="msg"><h1>🧟 AR Zombie Shooter</h1><p id="mp">Checking AR support…</p><button id="go" style="display:none">START</button></div>
 </div>
-<div id="cross"></div><div id="flash"></div>
-<button id="fire" style="display:none">FIRE</button>
-<div id="msg"><h1>🧟 AR Zombie Shooter</h1>
-<p>Camera allow pannunga. Phone ah suthi paarunga, zombies ellaa direction layum varum. Crosshair la vechi FIRE press pannunga!</p>
-<button id="go">START</button></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-document.body.insertBefore(renderer.domElement,$('hud'));
-const scene=new THREE.Scene();
-const cam=new THREE.PerspectiveCamera(65,1,0.1,100);
-scene.add(cam);
-scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.1));
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.localClippingEnabled=true;renderer.xr.enabled=true;
+document.body.insertBefore(renderer.domElement,$('ui'));
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(65,1,0.05,100);
+scene.add(new THREE.HemisphereLight(0xffffff,0x555555,1.1));
 const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(2,5,3);scene.add(dl);
 function resize(){renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
 addEventListener('resize',resize);resize();
 
-// Gun
-const gun=new THREE.Group();
-const M=(c)=>new THREE.MeshStandardMaterial({color:c,metalness:.5,roughness:.5});
-const bar=new THREE.Mesh(new THREE.BoxGeometry(.07,.08,.5),M(0x222222));bar.position.set(0,0,-.1);
-const grip=new THREE.Mesh(new THREE.BoxGeometry(.07,.2,.09),M(0x553311));grip.position.set(0,-.13,.08);grip.rotation.x=.25;
-const sight=new THREE.Mesh(new THREE.BoxGeometry(.02,.03,.02),M(0xaaaaaa));sight.position.set(0,.06,-.3);
-const mf=new THREE.Mesh(new THREE.SphereGeometry(.09,8,8),new THREE.MeshBasicMaterial({color:0xffcc33}));mf.position.set(0,0,-.4);mf.visible=false;
-gun.add(bar,grip,sight,mf);gun.position.set(.22,-.2,-.5);cam.add(gun);
+let xrMode=false,xrOK=false,phase='menu',floorY=-1.5,level=1,kills=0,target=8,health=100,playing=false,spawnT=0,last=0,recoil=0;
+let session=null,hitSource=null;
+const floorPlane=new THREE.Plane(new THREE.Vector3(0,1,0),-floorY);
+const P=new THREE.Vector3(),Q=new THREE.Quaternion(),V=new THREE.Vector3();
 
-// Orientation
+// Reticle
+const reticle=new THREE.Mesh(new THREE.RingGeometry(.15,.2,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0x33ff66}));
+reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
+
+// Gun (world-space, follows camera every frame)
+const gun=new THREE.Group();const GM=c=>new THREE.MeshStandardMaterial({color:c,metalness:.5,roughness:.5});
+const g1=new THREE.Mesh(new THREE.BoxGeometry(.05,.06,.35),GM(0x222222));g1.position.z=-.08;
+const g2=new THREE.Mesh(new THREE.BoxGeometry(.05,.14,.06),GM(0x553311));g2.position.set(0,-.09,.06);g2.rotation.x=.25;
+const mf=new THREE.Mesh(new THREE.SphereGeometry(.06,8,8),new THREE.MeshBasicMaterial({color:0xffcc33}));mf.position.z=-.3;mf.visible=false;
+gun.add(g1,g2,mf);gun.visible=false;scene.add(gun);
+
+// Gyro fallback
 let gyro=false,yaw=0,pitch=0;
 const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),zee=new THREE.Vector3(0,0,1),eu=new THREE.Euler(),q0=new THREE.Quaternion();
 addEventListener('deviceorientation',e=>{
- if(e.alpha==null)return;gyro=true;
- const o=(screen.orientation?screen.orientation.angle:0)*Math.PI/180,d=Math.PI/180;
- eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);
- cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
+ if(xrMode||e.alpha==null)return;gyro=true;const d=Math.PI/180,o=(screen.orientation?screen.orientation.angle:0)*d;
+ eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
 });
 let drag=null;
-addEventListener('pointerdown',e=>{if(e.target.id!=='fire')drag=[e.clientX,e.clientY]});
+addEventListener('pointerdown',e=>{if(!xrMode&&e.target.tagName==='CANVAS')drag=[e.clientX,e.clientY]});
 addEventListener('pointerup',()=>drag=null);
-addEventListener('pointermove',e=>{if(gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
+addEventListener('pointermove',e=>{if(xrMode||gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
 
 // Audio
 let ac;function beep(f,d,t='square',v=.15){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
 
 // Zombies
-const zombies=[];const GY=-1.5;
-function mk(w,h,d,c){return new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color:c}))}
-function limb(w,h,d,c,x,y){const p=new THREE.Group();const m=mk(w,h,d,c);m.position.y=-h/2;p.add(m);p.position.set(x,y,0);return p}
+const zombies=[];
+const ZM=c=>new THREE.MeshStandardMaterial({color:c,clippingPlanes:[floorPlane]});
+const mk=(w,h,d,c)=>new THREE.Mesh(new THREE.BoxGeometry(w,h,d),ZM(c));
+function limb(w,h,d,c,x,y){const p=new THREE.Group(),m=mk(w,h,d,c);m.position.y=-h/2;p.add(m);p.position.set(x,y,0);return p}
+const moundMat=new THREE.MeshBasicMaterial({color:0x2a1a0a,transparent:true,opacity:.8,side:THREE.DoubleSide});
 function spawn(){
  const g=new THREE.Group();
  const body=mk(.5,.7,.25,0x3a5a8a);body.position.y=1.05;
- const head=new THREE.Mesh(new THREE.SphereGeometry(.2,12,12),new THREE.MeshStandardMaterial({color:0x6fa05a}));head.position.y=1.65;
- const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);
- la.rotation.x=ra.rotation.x=-Math.PI/2.2;
+ const head=new THREE.Mesh(new THREE.SphereGeometry(.2,12,12),ZM(0x6fa05a));head.position.y=1.65;
+ const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);la.rotation.x=ra.rotation.x=-Math.PI/2.2;
  const ll=limb(.18,.7,.18,0x2a2a55,-.14,.7),rl=limb(.18,.7,.18,0x2a2a55,.14,.7);
  g.add(body,head,la,ra,ll,rl);
- const a=Math.random()*Math.PI*2,r=9+Math.random()*4;
- g.position.set(Math.sin(a)*r,GY,Math.cos(a)*r);
- g.userData={hp:2+Math.floor(level/3),speed:.6+level*.12+Math.random()*.3,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,head};
- g.lookAt(0,GY,0);scene.add(g);zombies.push(g);
+ const a=Math.random()*Math.PI*2,r=4+Math.random()*4,x=P.x+Math.sin(a)*r,z=P.z+Math.cos(a)*r;
+ g.position.set(x,floorY-1.9,z);
+ g.userData={hp:2+Math.floor(level/3),speed:.5+level*.1+Math.random()*.25,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,fall:0,rise:0,head};
+ const m=new THREE.Mesh(new THREE.CircleGeometry(.7,24).rotateX(-Math.PI/2),moundMat);m.position.set(x,floorY+.01,z);scene.add(m);setTimeout(()=>scene.remove(m),4000);
+ scene.add(g);zombies.push(g);
 }
-const ray=new THREE.Raycaster();
 function shoot(){
  if(!playing)return;
- beep(120,.15,'sawtooth',.25);
- mf.visible=true;gun.position.z=-.4;setTimeout(()=>{mf.visible=false},50);
- ray.setFromCamera({x:0,y:0},cam);
- const hits=ray.intersectObjects(zombies.filter(z=>!z.userData.dead),true);
+ beep(120,.15,'sawtooth',.25);recoil=.08;mf.visible=true;setTimeout(()=>mf.visible=false,50);
+ cam.updateMatrixWorld(true);cam.getWorldPosition(P);cam.getWorldQuaternion(Q);V.set(0,0,-1).applyQuaternion(Q);
+ const ray=new THREE.Raycaster(P.clone(),V.clone(),0,40);
+ const hits=ray.intersectObjects(zombies.filter(z=>!z.userData.dead&&z.userData.rise>=1),true);
  if(hits.length){
-  let o=hits[0].object;while(o.parent&&!o.userData.hp)o=o.parent;
-  const u=o.userData;u.hp-=hits[0].object===u.head||hits[0].object.geometry.type==='SphereGeometry'?2:1;
+  let o=hits[0].object;while(o.parent&&!o.userData.hp)o=o.parent;const u=o.userData;
+  u.hp-=hits[0].object===u.head?2:1;
   o.traverse(m=>{if(m.material&&m.material.emissive){m.material.emissive.setHex(0xff2200);setTimeout(()=>m.material.emissive.setHex(0),90)}});
   beep(300,.08,'triangle',.2);
   if(u.hp<=0){u.dead=.001;kills++;updHUD();beep(80,.3,'sawtooth',.25);if(kills>=target)levelUp()}
  }
 }
 $('fire').addEventListener('pointerdown',e=>{e.preventDefault();shoot()});
+['fire','msg'].forEach(i=>$(i).addEventListener('beforexrselect',e=>e.preventDefault()));
 addEventListener('keydown',e=>{if(e.code==='Space')shoot()});
 
-// Game state
-let level=1,kills=0,target=8,health=100,playing=false,spawnT=0,last=0;
 function updHUD(){$('lv').textContent='Level '+level;$('kl').textContent='Kills '+kills+'/'+target;$('hp').style.width=Math.max(0,health)+'%'}
 function clearZ(){zombies.splice(0).forEach(z=>scene.remove(z))}
-function levelUp(){
- playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();
- show('✅ Level Complete!','Adutha level: Level '+level+' — zombies innum fast ah varum!','NEXT LEVEL',()=>{playing=true});
-}
-function gameOver(){
- playing=false;clearZ();
- show('💀 Game Over','Level '+level+' la zombies unna pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true});
-}
-function show(t,p,b,cb){const m=$('msg');m.querySelector('h1').textContent=t;m.querySelector('p').textContent=p;const btn=$('go');btn.textContent=b;btn.onclick=()=>{m.style.display='none';cb()};m.style.display='flex'}
+function show(t,p,b,cb){$('msg').querySelector('h1').textContent=t;$('mp').textContent=p;const btn=$('go');btn.style.display='';btn.textContent=b;btn.onclick=()=>{$('msg').style.display='none';cb()};$('msg').style.display='flex'}
+function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();show('✅ Level Complete!','Adutha level: '+level+' — zombies innum fast, innum jaasthi!','NEXT LEVEL',()=>{playing=true})}
+function gameOver(){playing=false;clearZ();show('💀 Game Over','Level '+level+' la zombies pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
 
-function loop(t){
- requestAnimationFrame(loop);
+function beginPlay(){
+ phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;
+ $('hint').style.display='none';$('hud').style.display='block';$('cross').style.display='block';$('fire').style.display='block';updHUD();
+ hint('Nadandhu po, zombies un ah follow pannum! 🧟',3500);
+}
+function hint(t,ms){const h=$('hint');h.textContent=t;h.style.display='block';if(ms)setTimeout(()=>{if(phase==='play')h.style.display='none'},ms)}
+
+function loop(t,frame){
  const dt=Math.min((t-last)/1000||0,.05);last=t;
- gun.position.z+=(-.5-gun.position.z)*Math.min(1,dt*12);
- if(playing){
-  spawnT-=dt;
-  const alive=zombies.filter(z=>!z.userData.dead).length;
-  if(spawnT<=0&&alive<3+level){spawn();spawnT=Math.max(.8,3-level*.25)}
+ cam.updateMatrixWorld(true);cam.getWorldPosition(P);cam.getWorldQuaternion(Q);
+ if(xrMode&&phase==='scan'&&frame&&hitSource){
+  const r=frame.getHitTestResults(hitSource);
+  if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());reticle.visible=true;reticle.matrix.fromArray(pose.transform.matrix)}else reticle.visible=false;
  }
+ // gun follows camera
+ recoil+=(0-recoil)*Math.min(1,dt*12);
+ gun.visible=phase==='play';gun.position.set(.18,-.17,-.42+recoil).applyMatrix4(cam.matrixWorld);gun.quaternion.copy(Q);
+ if(playing){spawnT-=dt;const alive=zombies.filter(z=>!z.userData.dead).length;if(spawnT<=0&&alive<3+level){spawn();spawnT=Math.max(.8,3-level*.25)}}
  for(let i=zombies.length-1;i>=0;i--){
   const z=zombies[i],u=z.userData;u.t+=dt*4;
-  if(u.dead){u.dead+=dt;z.rotation.x=Math.max(-Math.PI/2,z.rotation.x-dt*4);z.position.y=GY+.1*Math.min(1,u.dead);if(u.dead>1.5){scene.remove(z);zombies.splice(i,1)}continue}
+  if(u.dead){u.dead+=dt;const d=Math.min(dt*4,Math.PI/2-u.fall);u.fall+=d;z.rotateX(-d);if(u.dead>1.5){scene.remove(z);zombies.splice(i,1)}continue}
   if(!playing)continue;
-  const dx=-z.position.x,dz=-z.position.z,dist=Math.hypot(dx,dz);
-  if(dist>1.6){
+  if(u.rise<1){u.rise=Math.min(1,u.rise+dt/1.6);z.position.y=floorY-1.9*(1-u.rise);continue}
+  const dx=P.x-z.position.x,dz=P.z-z.position.z,dist=Math.hypot(dx,dz);
+  z.lookAt(P.x,z.position.y,P.z);
+  if(dist>1.1){
    z.position.x+=dx/dist*u.speed*dt;z.position.z+=dz/dist*u.speed*dt;
    u.ll.rotation.x=Math.sin(u.t)*.6;u.rl.rotation.x=-Math.sin(u.t)*.6;
    u.la.rotation.x=-Math.PI/2.2+Math.sin(u.t)*.15;u.ra.rotation.x=-Math.PI/2.2-Math.sin(u.t)*.15;
-   z.position.y=GY+Math.abs(Math.sin(u.t))*.04;
+   z.position.y=floorY+Math.abs(Math.sin(u.t))*.03;u.atk=0;
   }else{
-   u.atk+=dt;const s=Math.sin(u.atk*9);
-   u.la.rotation.x=-Math.PI/2+s*.7;u.ra.rotation.x=-Math.PI/2-s*.7;z.rotation.x=.25+Math.abs(s)*.2;
+   u.atk+=dt;const s=Math.sin(u.atk*9);u.la.rotation.x=-Math.PI/2+s*.7;u.ra.rotation.x=-Math.PI/2-s*.7;z.rotateX(.2+Math.abs(s)*.2);
    if(u.atk>=1){u.atk=0;health-=5+level;updHUD();beep(70,.2,'sawtooth',.3);$('flash').style.opacity=.55;setTimeout(()=>$('flash').style.opacity=0,200);if(navigator.vibrate)navigator.vibrate(120);if(health<=0){gameOver();return}}
   }
  }
  renderer.render(scene,cam);
 }
-requestAnimationFrame(loop);
+renderer.setAnimationLoop(loop);
 
-async function start(){
+async function startXR(){
  try{
-  const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-  $('v').srcObject=s;
- }catch(e){document.body.style.background='linear-gradient(#345,#121)';alert('Camera open aagala. Page ah full screen / own browser la open pannu, camera permission kudu. Ippo normal background la game run aagum.')}
- try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
- try{ac=new AudioContext()}catch(e){}
- $('msg').style.display='none';$('fire').style.display='block';updHUD();playing=true;
+  session=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay'],domOverlay:{root:$('ui')}});
+  renderer.xr.setReferenceSpaceType('local');await renderer.xr.setSession(session);
+  const vs=await session.requestReferenceSpace('viewer');hitSource=await session.requestHitTestSource({space:vs});
+  xrMode=true;phase='scan';ac=ac||new AudioContext();
+  session.addEventListener('select',()=>{if(phase==='scan'&&reticle.visible){floorY=V.setFromMatrixPosition(reticle.matrix).y;beginPlay()}else if(phase==='play')shoot()});
+  session.addEventListener('end',()=>{xrMode=false;phase='menu';playing=false;clearZ();hitSource=null;$('hud').style.display=$('cross').style.display=$('fire').style.display='none';show('AR ended','Marupadi start panna button press pannu.','START AR',startXR)});
+  $('msg').style.display='none';hint('Phone ah nelam nokki kaatu, pachai ring theriyum pothu TAP pannu 👆');
+ }catch(e){$('mp').textContent='AR start aagala: '+e.message;$('msg').style.display='flex'}
 }
-$('go').onclick=start;
+async function startLite(){
+ try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('v').srcObject=s;$('v').style.display='block'}catch(e){document.body.style.background='linear-gradient(#345,#121)'}
+ try{if(DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
+ try{ac=new AudioContext()}catch(e){}
+ floorY=-1.5;$('msg').style.display='none';beginPlay();
+}
+(async()=>{
+ try{xrOK=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-ar')}catch(e){}
+ const b=$('go');b.style.display='';
+ if(xrOK){$('mp').textContent='Real WebXR AR ready! START press pannu, floor ah scan pannu, appuram zombies real world la varum.';b.textContent='START AR';b.onclick=startXR}
+ else{$('mp').textContent='Indha browser la WebXR AR support illa (iPhone Safari la illa). Android Chrome (ARCore) la link ah open pannu. Ippo lite mode (camera + gyro) la vilayadalaam.';b.textContent='START LITE MODE';b.onclick=startLite}
+})();
 </script></body></html>
