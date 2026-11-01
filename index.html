@@ -32,8 +32,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
-const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.localClippingEnabled=true;renderer.xr.enabled=true;
+window.addEventListener('error',e=>{$('mp').textContent='Error: '+e.message;$('msg').style.display='flex'});
+const LOW=(navigator.hardwareConcurrency||4)<=4||(navigator.deviceMemory||4)<=2;
+const renderer=new THREE.WebGLRenderer({alpha:true,antialias:!LOW,powerPreference:'high-performance'});
+renderer.setPixelRatio(LOW?1:Math.min(devicePixelRatio,2));renderer.xr.setFramebufferScaleFactor(LOW?.7:1);renderer.localClippingEnabled=true;renderer.xr.enabled=true;
 document.body.insertBefore(renderer.domElement,$('ui'));
 const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(65,1,0.05,100);
 scene.add(new THREE.HemisphereLight(0xffffff,0x555555,1.1));
@@ -67,12 +69,12 @@ addEventListener('deviceorientation',e=>{
  eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
 });
 let drag=null;
-addEventListener('pointerdown',e=>{if(!xrMode&&e.target.tagName==='CANVAS')drag=[e.clientX,e.clientY]});
+addEventListener('pointerdown',e=>{if(!xrMode&&e.target.tagName==='CANVAS'){drag=[e.clientX,e.clientY];if(gyro)shoot()}});
 addEventListener('pointerup',()=>drag=null);
 addEventListener('pointermove',e=>{if(xrMode||gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
 
 // Audio
-let ac;function beep(f,d,t='square',v=.15){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+let ac;function beep(f,d,t='square',v=.15){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
 
 // Zombies
 const zombies=[];
@@ -87,7 +89,7 @@ function spawn(){
  const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);la.rotation.x=ra.rotation.x=-Math.PI/2.2;
  const ll=limb(.18,.7,.18,0x2a2a55,-.14,.7),rl=limb(.18,.7,.18,0x2a2a55,.14,.7);
  g.add(body,head,la,ra,ll,rl);
- let x,z,k=0;do{const a=Math.random()*Math.PI*2,r=3+Math.random()*4;x=base.x+Math.sin(a)*r;z=base.z+Math.cos(a)*r;k++}while(Math.hypot(x-P.x,z-P.z)<4&&k<12);
+ let x,z,k=0;const cx=xrMode?base.x:P.x,cz=xrMode?base.z:P.z;do{const a=Math.random()*Math.PI*2,r=xrMode?3+Math.random()*4:5+Math.random()*3;x=cx+Math.sin(a)*r;z=cz+Math.cos(a)*r;k++}while(Math.hypot(x-P.x,z-P.z)<4&&k<12);
  g.position.set(x,floorY-1.9,z);
  g.userData={hp:2+Math.floor(level/3),speed:.5+level*.1+Math.random()*.25,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,fall:0,rise:0,head};
  const m=new THREE.Mesh(new THREE.CircleGeometry(.7,24).rotateX(-Math.PI/2),moundMat);m.position.set(x,floorY+.01,z);scene.add(m);setTimeout(()=>scene.remove(m),4000);
@@ -125,9 +127,9 @@ function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;healt
 function gameOver(){playing=false;clearZ();show('💀 Game Over','Level '+level+' la zombies pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
 
 function beginPlay(){
- phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=true;spawnT=2;
+ phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=xrMode;spawnT=2;
  $('hint').style.display='none';$('hud').style.display='block';$('cross').style.display='block';$('fire').style.display='block';updHUD();
- hint('Nadandhu po, zombies un ah follow pannum! 🧟',3500);
+ hint(xrMode?'Nadandhu po, zombies un ah follow pannum! 🧟':'Suthi paaru, zombies ellaa pakkamum varum! Tap pannaalum shoot aagum 🧟',3500);
 }
 function hint(t,ms){const h=$('hint');h.textContent=t;h.style.display='block';if(ms)setTimeout(()=>{if(phase==='play')h.style.display='none'},ms)}
 
@@ -143,7 +145,7 @@ function loop(t,frame){
  // gun follows camera
  recoil+=(0-recoil)*Math.min(1,dt*12);
  gun.visible=phase==='play';gun.position.set(.18,-.17,-.42+recoil).applyMatrix4(cam.matrixWorld);gun.quaternion.copy(Q);
- if(playing){spawnT-=dt;const alive=zombies.filter(z=>!z.userData.dead).length;if(spawnT<=0&&alive<3+level){spawn();spawnT=Math.max(.8,3-level*.25)}}
+ if(playing){spawnT-=dt;const alive=zombies.filter(z=>!z.userData.dead).length;if(spawnT<=0&&alive<Math.min(LOW?5:8,3+level)){spawn();spawnT=Math.max(.8,3-level*.25)}}
  for(let i=zombies.length-1;i>=0;i--){
   const z=zombies[i],u=z.userData;u.t+=dt*4;
   if(u.dead){u.dead+=dt;const d=Math.min(dt*4,Math.PI/2-u.fall);u.fall+=d;z.rotateX(-d);if(u.dead>1.5){scene.remove(z);zombies.splice(i,1)}continue}
@@ -177,15 +179,17 @@ async function startXR(){
  }catch(e){$('mp').textContent='AR start aagala: '+e.message;$('msg').style.display='flex'}
 }
 async function startLite(){
- try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('v').srcObject=s;$('v').style.display='block'}catch(e){document.body.style.background='linear-gradient(#345,#121)'}
- try{if(DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
- try{ac=new AudioContext()}catch(e){}
- floorY=-1.5;base.set(0,-1.5,-3);$('msg').style.display='none';beginPlay();
+ try{ac=new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
+ let mo=true;try{if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission){mo=(await DeviceOrientationEvent.requestPermission())==='granted'}}catch(e){mo=false}
+ try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});const v=$('v');v.srcObject=s;v.style.display='block';v.play().catch(()=>{})}catch(e){document.body.style.background='linear-gradient(#345,#121)'}
+ 
+ 
+ $('msg').style.display='none';phase='scan';const sf=$('setfloor');sf.textContent='📍 START HERE';sf.style.display='block';hint(mo?'Zombies varra direction nokki phone ah pidichi START HERE press pannu. Suthi paathu shoot pannu 🔫':'⚠ Motion access kudukala. Drag panni suthi paaru, START HERE press pannu.');
 }
 (async()=>{
  try{xrOK=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-ar')}catch(e){}
- const b=$('go');b.style.display='';
- if(xrOK){$('mp').textContent='Real WebXR AR ready! START press pannu, floor ah scan pannu, appuram zombies real world la varum.';b.textContent='START AR';b.onclick=startXR}
- else{$('mp').textContent='Indha browser la WebXR AR support illa (iPhone Safari la illa). Android Chrome (ARCore) la link ah open pannu. Ippo lite mode (camera + gyro) la vilayadalaam.';b.textContent='START LITE MODE';b.onclick=startLite}
+ const b=$('go');b.style.display='';const warn=window.top!==window.self?' ⚠ Chat preview la irukku: camera/AR work aaga link ah phone browser la direct ah open pannu.':'';
+ if(xrOK){$('mp').textContent='Real WebXR AR ready! START press pannu, floor ah scan pannu, appuram zombies real world la varum.'+warn;b.textContent='START AR';b.onclick=startXR}
+ else{$('mp').textContent='Indha phone/browser la full world-tracking AR illa (iPhone Safari la illa). Camera + motion sensor AR mode la vilayadalaam: nindru suthi paathu shoot pannu.'+warn;b.textContent='START AR (LITE)';b.onclick=startLite}
 })();
 </script></body></html>
