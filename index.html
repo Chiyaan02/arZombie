@@ -26,7 +26,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
  <div id="hud"><div id="top"><span id="lv"></span><span id="kl"></span></div><div id="bar"><div id="hp"></div></div></div>
  <div id="cross"></div><div id="flash"></div><div id="hint"></div>
  <button id="fire">FIRE</button>
- <button id="setfloor">📍 SET FLOOR</button>
+ <button id="setfloor">📍 START HERE</button>
  <div id="msg"><h1>🧟 AR Zombie Shooter</h1><p id="mp">Checking AR support…</p><button id="go" style="display:none">START</button></div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -61,13 +61,14 @@ const g2=new THREE.Mesh(new THREE.BoxGeometry(.05,.14,.06),GM(0x553311));g2.posi
 const mf=new THREE.Mesh(new THREE.SphereGeometry(.06,8,8),new THREE.MeshBasicMaterial({color:0xffcc33}));mf.position.z=-.3;mf.visible=false;
 gun.add(g1,g2,mf);gun.visible=false;scene.add(gun);
 
-// Gyro fallback
+// Gyro fallback for iOS / Mobile Safari
 let gyro=false,yaw=0,pitch=0;
 const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),zee=new THREE.Vector3(0,0,1),eu=new THREE.Euler(),q0=new THREE.Quaternion();
-addEventListener('deviceorientation',e=>{
+window.addEventListener('deviceorientation',e=>{
  if(xrMode||e.alpha==null)return;gyro=true;const d=Math.PI/180,o=(screen.orientation?screen.orientation.angle:0)*d;
  eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
 });
+
 let drag=null;
 addEventListener('pointerdown',e=>{if(!xrMode&&e.target.tagName==='CANVAS'){drag=[e.clientX,e.clientY];if(gyro)shoot()}});
 addEventListener('pointerup',()=>drag=null);
@@ -123,13 +124,13 @@ $('setfloor').addEventListener('click',()=>{
 function updHUD(){$('lv').textContent='Level '+level;$('kl').textContent='Kills '+kills+'/'+target;$('hp').style.width=Math.max(0,health)+'%'}
 function clearZ(){zombies.splice(0).forEach(z=>scene.remove(z))}
 function show(t,p,b,cb){$('msg').querySelector('h1').textContent=t;$('mp').textContent=p;const btn=$('go');btn.style.display='';btn.textContent=b;btn.onclick=()=>{$('msg').style.display='none';cb()};$('msg').style.display='flex'}
-function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();show('✅ Level Complete!','Adutha level: '+level+' — zombies innum fast, innum jaasthi!','NEXT LEVEL',()=>{playing=true})}
-function gameOver(){playing=false;clearZ();show('💀 Game Over','Level '+level+' la zombies pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
+function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();show('✅ Level Complete!','अगடுத்த நிலை: '+level,'NEXT LEVEL',()=>{playing=true})}
+function gameOver(){playing=false;clearZ();show('💀 Game Over','ஜோம்பிஸ் உங்களைப் பிடித்துவிட்டது!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
 
 function beginPlay(){
  phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=xrMode;spawnT=2;
  $('hint').style.display='none';$('hud').style.display='block';$('cross').style.display='block';$('fire').style.display='block';updHUD();
- hint(xrMode?'Nadandhu po, zombies un ah follow pannum! 🧟':'Suthi paaru, zombies ellaa pakkamum varum! Tap pannaalum shoot aagum 🧟',3500);
+ hint('சுற்றிப் பார்த்து ஜோம்பிஸைச் சுட்டு வீழ்த்துங்கள்! 🧟',3500);
 }
 function hint(t,ms){const h=$('hint');h.textContent=t;h.style.display='block';if(ms)setTimeout(()=>{if(phase==='play')h.style.display='none'},ms)}
 
@@ -142,7 +143,6 @@ function loop(t,frame){
   if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());if(pose){const o=pose.transform.orientation,tp=pose.transform.position;V.set(0,1,0).applyQuaternion(new THREE.Quaternion(o.x,o.y,o.z,o.w));if(V.y>.8){reticle.position.set(tp.x,tp.y,tp.z);reticle.visible=true;hitOK=true}}}
   $('setfloor').textContent=hitOK?'📍 SET FLOOR HERE':'📍 SET FLOOR (auto)';
  }
- // gun follows camera
  recoil+=(0-recoil)*Math.min(1,dt*12);
  gun.visible=phase==='play';gun.position.set(.18,-.17,-.42+recoil).applyMatrix4(cam.matrixWorld);gun.quaternion.copy(Q);
  if(playing){spawnT-=dt;const alive=zombies.filter(z=>!z.userData.dead).length;if(spawnT<=0&&alive<Math.min(LOW?5:8,3+level)){spawn();spawnT=Math.max(.8,3-level*.25)}}
@@ -167,29 +167,54 @@ function loop(t,frame){
 }
 renderer.setAnimationLoop(loop);
 
-async function startXR(){
- try{
-  session=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay'],domOverlay:{root:$('ui')}});
-  renderer.xr.setReferenceSpaceType('local');await renderer.xr.setSession(session);
-  const vs=await session.requestReferenceSpace('viewer');hitSource=await session.requestHitTestSource({space:vs});
-  xrMode=true;phase='scan';ac=ac||new AudioContext();
-  session.addEventListener('select',()=>{if(phase==='play')shoot()});
-  session.addEventListener('end',()=>{xrMode=false;phase='menu';playing=false;clearZ();hitSource=null;$('hud').style.display=$('cross').style.display=$('fire').style.display=$('setfloor').style.display='none';baseMark.visible=false;show('AR ended','Marupadi start panna button press pannu.','START AR',startXR)});
-  $('msg').style.display='none';$('setfloor').style.display='block';hint('Floor ah nokki phone ah mella asai 📱 pachai ring theriyum pothu SET FLOOR press pannu. Adhu dhaan zombies base.');
- }catch(e){$('mp').textContent='AR start aagala: '+e.message;$('msg').style.display='flex'}
-}
 async function startLite(){
  try{ac=new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
- let mo=true;try{if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission){mo=(await DeviceOrientationEvent.requestPermission())==='granted'}}catch(e){mo=false}
- try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});const v=$('v');v.srcObject=s;v.style.display='block';v.play().catch(()=>{})}catch(e){document.body.style.background='linear-gradient(#345,#121)'}
  
+ // iOS Safari Motion Permission Request
+ try{
+  if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+   const response=await DeviceOrientationEvent.requestPermission();
+   if(response!=='granted'){
+    alert('மோஷன் சென்சார் அனுமதி மறுக்கப்பட்டுள்ளது. ஃபோனை நகர்த்தி விளையாட முடியாது.');
+   }
+  }
+ }catch(e){console.log('Motion permission error:',e);}
+
+ // Camera Stream Request
+ try{
+  const s=await navigator.mediaDevices.getUserMedia({
+   video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+   audio:false
+  });
+  const v=$('v');
+  v.srcObject=s;
+  v.style.display='block';
+  v.play().catch(err=>console.log('Video play error:',err));
+ }catch(e){
+  $('mp').textContent='கேமரா அனுமதி கிடைக்கவில்லை: '+e.message;
+  document.body.style.background='linear-gradient(#345,#121)';
+ }
  
- $('msg').style.display='none';phase='scan';const sf=$('setfloor');sf.textContent='📍 START HERE';sf.style.display='block';hint(mo?'Zombies varra direction nokki phone ah pidichi START HERE press pannu. Suthi paathu shoot pannu 🔫':'⚠ Motion access kudukala. Drag panni suthi paaru, START HERE press pannu.');
+ $('msg').style.display='none';
+ phase='scan';
+ const sf=$('setfloor');
+ sf.textContent='📍 START HERE';
+ sf.style.display='block';
+ hint('ஃபோனைப் பிடித்துக்கொண்டு START HERE பட்டனை அழுத்தவும் 🔫');
 }
+
 (async()=>{
  try{xrOK=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-ar')}catch(e){}
- const b=$('go');b.style.display='';const warn=window.top!==window.self?' ⚠ Chat preview la irukku: camera/AR work aaga link ah phone browser la direct ah open pannu.':'';
- if(xrOK){$('mp').textContent='Real WebXR AR ready! START press pannu, floor ah scan pannu, appuram zombies real world la varum.'+warn;b.textContent='START AR';b.onclick=startXR}
- else{$('mp').textContent='Indha phone/browser la full world-tracking AR illa (iPhone Safari la illa). Camera + motion sensor AR mode la vilayadalaam: nindru suthi paathu shoot pannu.'+warn;b.textContent='START AR (LITE)';b.onclick=startLite}
+ const b=$('go');b.style.display='';
+ const warn=window.top!==window.self?' ⚠ Safari பிரவுசரில் நேரடியாக ஓபன் செய்யவும்.':'';
+ if(xrOK){
+  $('mp').textContent='WebXR AR ரெடி! START அழுத்தவும்.'+warn;
+  b.textContent='START AR';
+  b.onclick=startXR;
+ }else{
+  $('mp').textContent='iPhone Safari கேமரா + கைரோ மோடில் இயக்க தயாராக உள்ளது.'+warn;
+  b.textContent='START AR (LITE)';
+  b.onclick=startLite;
+ }
 })();
 </script></body></html>
