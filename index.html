@@ -20,11 +20,25 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000d;text-align:center;padding:24px;pointer-events:auto}
 #msg h1{margin:0;font-size:30px}#msg p{margin:0;max-width:380px;opacity:.85}
 #msg button{font-size:20px;font-weight:800;padding:14px 32px;border:0;border-radius:30px;background:#3c3;color:#000}
+#rot{position:fixed;inset:0;z-index:99;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-size:20px;font-weight:700}
+#rot b{font-size:64px}
+@media (orientation:portrait){#rot{display:flex}}
+#eL,#eR{position:absolute;top:0;bottom:0;width:16%;opacity:0;pointer-events:none}
+#eL{left:0;background:linear-gradient(90deg,#f33c,#f330)}
+#eR{right:0;background:linear-gradient(270deg,#f33c,#f330)}
+@media (orientation:landscape){
+ #hud{padding-left:calc(14px + env(safe-area-inset-left,0px));padding-right:calc(14px + env(safe-area-inset-right,0px))}
+ #hint{bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+ #fire{right:calc(28px + env(safe-area-inset-right,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+ #setfloor{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+ #msg h1{font-size:24px}
+}
 </style></head><body>
+<div id="rot"><b>📱↻</b><div>போனை படுக்கை நிலையில் (Landscape) திருப்புங்கள்<br><small style="font-weight:400;opacity:.8">Rotate your phone to landscape</small></div></div>
 <video id="v" playsinline muted autoplay></video>
 <div id="ui">
  <div id="hud"><div id="top"><span id="lv"></span><span id="kl"></span></div><div id="bar"><div id="hp"></div></div></div>
- <div id="cross"></div><div id="flash"></div><div id="hint"></div>
+ <div id="eL"></div><div id="eR"></div><div id="cross"></div><div id="flash"></div><div id="hint"></div>
  <button id="fire">FIRE</button>
  <button id="setfloor">📍 START HERE</button>
  <div id="msg"><h1>🧟 AR Zombie Shooter</h1><p id="mp">Checking AR support…</p><button id="go" style="display:none">START</button></div>
@@ -61,18 +75,26 @@ const g2=new THREE.Mesh(new THREE.BoxGeometry(.05,.14,.06),GM(0x553311));g2.posi
 const mf=new THREE.Mesh(new THREE.SphereGeometry(.06,8,8),new THREE.MeshBasicMaterial({color:0xffcc33}));mf.position.z=-.3;mf.visible=false;
 gun.add(g1,g2,mf);gun.visible=false;scene.add(gun);
 
+// 180° view limit (+-90 deg from the start direction)
+const LIM=Math.PI/2,e2=new THREE.Euler();let baseYaw=0,limitOn=false,relYaw=0;const origin=new THREE.Vector3();
+function limitView(){
+ e2.setFromQuaternion(cam.quaternion,'YXZ');
+ let rel=e2.y-baseYaw;rel=Math.atan2(Math.sin(rel),Math.cos(rel));
+ if(limitOn){const c=Math.max(-LIM,Math.min(LIM,rel));if(c!==rel){e2.y=baseYaw+c;cam.quaternion.setFromEuler(e2)}rel=c}
+ relYaw=rel;
+}
 // Gyro fallback for iOS / Mobile Safari
 let gyro=false,yaw=0,pitch=0;
 const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),zee=new THREE.Vector3(0,0,1),eu=new THREE.Euler(),q0=new THREE.Quaternion();
 window.addEventListener('deviceorientation',e=>{
- if(xrMode||e.alpha==null)return;gyro=true;const d=Math.PI/180,o=(screen.orientation?screen.orientation.angle:0)*d;
- eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
+ if(xrMode||e.alpha==null)return;gyro=true;const d=Math.PI/180,o=((screen.orientation&&screen.orientation.angle!=null?screen.orientation.angle:(window.orientation||0)))*d;
+ eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));limitView();
 });
 
 let drag=null;
 addEventListener('pointerdown',e=>{if(!xrMode&&e.target.tagName==='CANVAS'){drag=[e.clientX,e.clientY];if(gyro)shoot()}});
 addEventListener('pointerup',()=>drag=null);
-addEventListener('pointermove',e=>{if(xrMode||gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
+addEventListener('pointermove',e=>{if(xrMode||gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;if(limitOn)yaw=Math.max(baseYaw-LIM,Math.min(baseYaw+LIM,yaw));pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
 
 // Audio
 let ac;function beep(f,d,t='square',v=.15){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
@@ -83,6 +105,27 @@ const ZM=c=>new THREE.MeshStandardMaterial({color:c,clippingPlanes:[floorPlane]}
 const mk=(w,h,d,c)=>new THREE.Mesh(new THREE.BoxGeometry(w,h,d),ZM(c));
 function limb(w,h,d,c,x,y){const p=new THREE.Group(),m=mk(w,h,d,c);m.position.y=-h/2;p.add(m);p.position.set(x,y,0);return p}
 const moundMat=new THREE.MeshBasicMaterial({color:0x2a1a0a,transparent:true,opacity:.8,side:THREE.DoubleSide});
+// Dedicated zombie land: 180° half-ring of ground in front of the player
+let land=null;const R0=4.6,R1=9.4;
+const earthMat=new THREE.MeshBasicMaterial({color:0x24140a,transparent:true,opacity:.78,side:THREE.DoubleSide,depthWrite:false});
+const edgeMat=new THREE.MeshBasicMaterial({color:0xff2233,side:THREE.DoubleSide});
+const stoneMat=new THREE.MeshStandardMaterial({color:0x777777,roughness:.9});
+function buildLand(){
+ if(land)scene.remove(land);
+ land=new THREE.Group();
+ const arc=(a,b,m)=>new THREE.Mesh(new THREE.RingGeometry(a,b,64,1,0,Math.PI).rotateX(-Math.PI/2),m);
+ const earth=arc(R0,R1,earthMat);earth.position.y=.02;
+ const eIn=arc(R0-.04,R0+.04,edgeMat),eOut=arc(R1-.04,R1+.04,edgeMat);eIn.position.y=eOut.position.y=.03;
+ land.add(earth,eIn,eOut);
+ for(const x of [-R1,-R0,R0,R1]){const p=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,1.4,8),edgeMat);p.position.set(x,.7,0);land.add(p)}
+ for(let i=0;i<12;i++){
+  const ph=(Math.random()-.5)*Math.PI*.9,r=R0+.6+Math.random()*(R1-R0-1.2),g=new THREE.Group();
+  const a=new THREE.Mesh(new THREE.BoxGeometry(.12,.7,.12),stoneMat),b=new THREE.Mesh(new THREE.BoxGeometry(.45,.12,.12),stoneMat);
+  a.position.y=.35;b.position.y=.5;g.add(a,b);
+  g.position.set(Math.sin(ph)*r,0,-Math.cos(ph)*r);g.rotation.y=(Math.random()-.5)*.6;g.rotation.z=(Math.random()-.5)*.25;land.add(g);
+ }
+ land.position.set(origin.x,floorY,origin.z);land.rotation.y=baseYaw;scene.add(land);
+}
 function spawn(){
  const g=new THREE.Group();
  const body=mk(.5,.7,.25,0x3a5a8a);body.position.y=1.05;
@@ -90,7 +133,8 @@ function spawn(){
  const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);la.rotation.x=ra.rotation.x=-Math.PI/2.2;
  const ll=limb(.18,.7,.18,0x2a2a55,-.14,.7),rl=limb(.18,.7,.18,0x2a2a55,.14,.7);
  g.add(body,head,la,ra,ll,rl);
- let x,z,k=0;const cx=xrMode?base.x:P.x,cz=xrMode?base.z:P.z;do{const a=Math.random()*Math.PI*2,r=xrMode?3+Math.random()*4:5+Math.random()*3;x=cx+Math.sin(a)*r;z=cz+Math.cos(a)*r;k++}while(Math.hypot(x-P.x,z-P.z)<4&&k<12);
+ const ph=(Math.random()-.5)*Math.PI*.96,rr=R0+.6+Math.random()*(R1-R0-1.2),lx=Math.sin(ph)*rr,lz=-Math.cos(ph)*rr,cb=Math.cos(baseYaw),sb=Math.sin(baseYaw);
+ const x=origin.x+lx*cb+lz*sb,z=origin.z-lx*sb+lz*cb;
  g.position.set(x,floorY-1.9,z);
  g.userData={hp:2+Math.floor(level/3),speed:.5+level*.1+Math.random()*.25,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,fall:0,rise:0,head};
  const m=new THREE.Mesh(new THREE.CircleGeometry(.7,24).rotateX(-Math.PI/2),moundMat);m.position.set(x,floorY+.01,z);scene.add(m);setTimeout(()=>scene.remove(m),4000);
@@ -116,6 +160,7 @@ addEventListener('keydown',e=>{if(e.code==='Space')shoot()});
 $('setfloor').addEventListener('beforexrselect',e=>e.preventDefault());
 $('setfloor').addEventListener('click',()=>{
  cam.updateMatrixWorld(true);cam.getWorldPosition(P);
+ origin.set(P.x,0,P.z);e2.setFromQuaternion(cam.quaternion,'YXZ');baseYaw=e2.y;yaw=baseYaw;limitOn=true;
  if(xrMode&&hitOK){floorY=reticle.position.y;base.set(reticle.position.x,floorY,reticle.position.z)}
  else{floorY=P.y-1.4;cam.getWorldQuaternion(Q);V.set(0,0,-1).applyQuaternion(Q);V.y=0;V.normalize();base.set(P.x+V.x*3,floorY,P.z+V.z*3)}
  beginPlay();
@@ -124,19 +169,20 @@ $('setfloor').addEventListener('click',()=>{
 function updHUD(){$('lv').textContent='Level '+level;$('kl').textContent='Kills '+kills+'/'+target;$('hp').style.width=Math.max(0,health)+'%'}
 function clearZ(){zombies.splice(0).forEach(z=>scene.remove(z))}
 function show(t,p,b,cb){$('msg').querySelector('h1').textContent=t;$('mp').textContent=p;const btn=$('go');btn.style.display='';btn.textContent=b;btn.onclick=()=>{$('msg').style.display='none';cb()};$('msg').style.display='flex'}
-function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();show('✅ Level Complete!','अगடுத்த நிலை: '+level,'NEXT LEVEL',()=>{playing=true})}
+function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();show('✅ Level Complete!','அடுத்த நிலை: '+level,'NEXT LEVEL',()=>{playing=true})}
 function gameOver(){playing=false;clearZ();show('💀 Game Over','ஜோம்பிஸ் உங்களைப் பிடித்துவிட்டது!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
 
 function beginPlay(){
- phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=xrMode;spawnT=2;
+ phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=xrMode;spawnT=2;buildLand();
  $('hint').style.display='none';$('hud').style.display='block';$('cross').style.display='block';$('fire').style.display='block';updHUD();
- hint('சுற்றிப் பார்த்து ஜோம்பிஸைச் சுட்டு வீழ்த்துங்கள்! 🧟',3500);
+ hint('முன் பக்கம் 180° மட்டும் – சிவப்பு நிலத்திலிருந்து ஜோம்பிஸ் வருகிறார்கள்! 🧟',4500);
 }
 function hint(t,ms){const h=$('hint');h.textContent=t;h.style.display='block';if(ms)setTimeout(()=>{if(phase==='play')h.style.display='none'},ms)}
 
 function loop(t,frame){
  const dt=Math.min((t-last)/1000||0,.05);last=t;
- cam.updateMatrixWorld(true);cam.getWorldPosition(P);cam.getWorldQuaternion(Q);
+ limitView();cam.updateMatrixWorld(true);cam.getWorldPosition(P);cam.getWorldQuaternion(Q);
+ {const k=phase==='play'?Math.max(0,Math.min(1,(Math.abs(relYaw)-LIM*.8)/(LIM*.2))):0;$('eL').style.opacity=relYaw>0?k:0;$('eR').style.opacity=relYaw<0?k:0}
  if(xrMode&&phase==='scan'&&frame&&hitSource){
   const r=frame.getHitTestResults(hitSource);
   reticle.visible=false;hitOK=false;
@@ -180,6 +226,9 @@ async function startLite(){
   }
  }catch(e){console.log('Motion permission error:',e);}
 
+ // Fullscreen + landscape lock (Android Chrome; iOS shows rotate overlay instead)
+ try{const el=document.documentElement;if(el.requestFullscreen)await el.requestFullscreen({navigationUI:'hide'});if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape')}catch(e){}
+
  // Camera Stream Request
  try{
   const s=await navigator.mediaDevices.getUserMedia({
@@ -200,21 +249,14 @@ async function startLite(){
  const sf=$('setfloor');
  sf.textContent='📍 START HERE';
  sf.style.display='block';
- hint('ஃபோனைப் பிடித்துக்கொண்டு START HERE பட்டனை அழுத்தவும் 🔫');
+ hint('போனை landscape-ல் பிடித்து, ஜோம்பிஸ் வரும் திசையை நோக்கி START HERE அழுத்தவும் 🔫');
 }
 
 (async()=>{
  try{xrOK=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-ar')}catch(e){}
  const b=$('go');b.style.display='';
  const warn=window.top!==window.self?' ⚠ Safari பிரவுசரில் நேரடியாக ஓபன் செய்யவும்.':'';
- if(xrOK){
-  $('mp').textContent='WebXR AR ரெடி! START அழுத்தவும்.'+warn;
-  b.textContent='START AR';
-  b.onclick=startXR;
- }else{
-  $('mp').textContent='iPhone Safari கேமரா + கைரோ மோடில் இயக்க தயாராக உள்ளது.'+warn;
-  b.textContent='START AR (LITE)';
-  b.onclick=startLite;
- }
+ $('mp').textContent='போனை படுக்கை நிலையில் (Landscape) பிடியுங்கள். முன் பக்கம் 180° மட்டும் சுழற்றலாம்.'+warn;
+ b.textContent='START';b.onclick=startLite;
 })();
 </script></body></html>
