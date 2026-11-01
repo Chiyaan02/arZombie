@@ -15,6 +15,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
 #cross:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;background:#f33;border-radius:50%}
 #hint{position:absolute;left:12px;right:12px;bottom:calc(150px + env(safe-area-inset-bottom,0px));text-align:center;font-weight:700;text-shadow:0 1px 4px #000;display:none}
 #fire{position:absolute;right:20px;bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:3px solid #fff;background:#e33c;color:#fff;font-size:18px;font-weight:800;pointer-events:auto;display:none}
+#setfloor{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(40px + env(safe-area-inset-bottom,0px));padding:16px 28px;font-size:18px;font-weight:800;border:0;border-radius:30px;background:#3c3;color:#000;pointer-events:auto;display:none}
 #flash{position:absolute;inset:0;background:#f00;opacity:0;transition:opacity .25s}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000d;text-align:center;padding:24px;pointer-events:auto}
 #msg h1{margin:0;font-size:30px}#msg p{margin:0;max-width:380px;opacity:.85}
@@ -25,6 +26,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
  <div id="hud"><div id="top"><span id="lv"></span><span id="kl"></span></div><div id="bar"><div id="hp"></div></div></div>
  <div id="cross"></div><div id="flash"></div><div id="hint"></div>
  <button id="fire">FIRE</button>
+ <button id="setfloor">📍 SET FLOOR</button>
  <div id="msg"><h1>🧟 AR Zombie Shooter</h1><p id="mp">Checking AR support…</p><button id="go" style="display:none">START</button></div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -40,13 +42,15 @@ function resize(){renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth
 addEventListener('resize',resize);resize();
 
 let xrMode=false,xrOK=false,phase='menu',floorY=-1.5,level=1,kills=0,target=8,health=100,playing=false,spawnT=0,last=0,recoil=0;
-let session=null,hitSource=null;
+let session=null,hitSource=null,hitOK=false;
 const floorPlane=new THREE.Plane(new THREE.Vector3(0,1,0),-floorY);
 const P=new THREE.Vector3(),Q=new THREE.Quaternion(),V=new THREE.Vector3();
 
 // Reticle
 const reticle=new THREE.Mesh(new THREE.RingGeometry(.15,.2,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0x33ff66}));
-reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
+reticle.visible=false;scene.add(reticle);
+const baseMark=new THREE.Group();baseMark.add(new THREE.Mesh(new THREE.RingGeometry(.5,.6,40).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xff3344,side:THREE.DoubleSide})));
+const pole=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1.2,8),new THREE.MeshBasicMaterial({color:0xff3344}));pole.position.y=.6;baseMark.add(pole);baseMark.visible=false;scene.add(baseMark);const base=new THREE.Vector3();
 
 // Gun (world-space, follows camera every frame)
 const gun=new THREE.Group();const GM=c=>new THREE.MeshStandardMaterial({color:c,metalness:.5,roughness:.5});
@@ -83,7 +87,7 @@ function spawn(){
  const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);la.rotation.x=ra.rotation.x=-Math.PI/2.2;
  const ll=limb(.18,.7,.18,0x2a2a55,-.14,.7),rl=limb(.18,.7,.18,0x2a2a55,.14,.7);
  g.add(body,head,la,ra,ll,rl);
- const a=Math.random()*Math.PI*2,r=4+Math.random()*4,x=P.x+Math.sin(a)*r,z=P.z+Math.cos(a)*r;
+ let x,z,k=0;do{const a=Math.random()*Math.PI*2,r=3+Math.random()*4;x=base.x+Math.sin(a)*r;z=base.z+Math.cos(a)*r;k++}while(Math.hypot(x-P.x,z-P.z)<4&&k<12);
  g.position.set(x,floorY-1.9,z);
  g.userData={hp:2+Math.floor(level/3),speed:.5+level*.1+Math.random()*.25,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,fall:0,rise:0,head};
  const m=new THREE.Mesh(new THREE.CircleGeometry(.7,24).rotateX(-Math.PI/2),moundMat);m.position.set(x,floorY+.01,z);scene.add(m);setTimeout(()=>scene.remove(m),4000);
@@ -106,6 +110,13 @@ function shoot(){
 $('fire').addEventListener('pointerdown',e=>{e.preventDefault();shoot()});
 ['fire','msg'].forEach(i=>$(i).addEventListener('beforexrselect',e=>e.preventDefault()));
 addEventListener('keydown',e=>{if(e.code==='Space')shoot()});
+$('setfloor').addEventListener('beforexrselect',e=>e.preventDefault());
+$('setfloor').addEventListener('click',()=>{
+ cam.updateMatrixWorld(true);cam.getWorldPosition(P);
+ if(xrMode&&hitOK){floorY=reticle.position.y;base.set(reticle.position.x,floorY,reticle.position.z)}
+ else{floorY=P.y-1.4;cam.getWorldQuaternion(Q);V.set(0,0,-1).applyQuaternion(Q);V.y=0;V.normalize();base.set(P.x+V.x*3,floorY,P.z+V.z*3)}
+ beginPlay();
+});
 
 function updHUD(){$('lv').textContent='Level '+level;$('kl').textContent='Kills '+kills+'/'+target;$('hp').style.width=Math.max(0,health)+'%'}
 function clearZ(){zombies.splice(0).forEach(z=>scene.remove(z))}
@@ -114,7 +125,7 @@ function levelUp(){playing=false;clearZ();level++;kills=0;target=5+level*3;healt
 function gameOver(){playing=false;clearZ();show('💀 Game Over','Level '+level+' la zombies pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true})}
 
 function beginPlay(){
- phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;
+ phase='play';playing=true;reticle.visible=false;floorPlane.constant=-floorY;$('setfloor').style.display='none';baseMark.position.copy(base);baseMark.visible=true;spawnT=2;
  $('hint').style.display='none';$('hud').style.display='block';$('cross').style.display='block';$('fire').style.display='block';updHUD();
  hint('Nadandhu po, zombies un ah follow pannum! 🧟',3500);
 }
@@ -125,7 +136,9 @@ function loop(t,frame){
  cam.updateMatrixWorld(true);cam.getWorldPosition(P);cam.getWorldQuaternion(Q);
  if(xrMode&&phase==='scan'&&frame&&hitSource){
   const r=frame.getHitTestResults(hitSource);
-  if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());reticle.visible=true;reticle.matrix.fromArray(pose.transform.matrix)}else reticle.visible=false;
+  reticle.visible=false;hitOK=false;
+  if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());if(pose){const o=pose.transform.orientation,tp=pose.transform.position;V.set(0,1,0).applyQuaternion(new THREE.Quaternion(o.x,o.y,o.z,o.w));if(V.y>.8){reticle.position.set(tp.x,tp.y,tp.z);reticle.visible=true;hitOK=true}}}
+  $('setfloor').textContent=hitOK?'📍 SET FLOOR HERE':'📍 SET FLOOR (auto)';
  }
  // gun follows camera
  recoil+=(0-recoil)*Math.min(1,dt*12);
@@ -158,16 +171,16 @@ async function startXR(){
   renderer.xr.setReferenceSpaceType('local');await renderer.xr.setSession(session);
   const vs=await session.requestReferenceSpace('viewer');hitSource=await session.requestHitTestSource({space:vs});
   xrMode=true;phase='scan';ac=ac||new AudioContext();
-  session.addEventListener('select',()=>{if(phase==='scan'&&reticle.visible){floorY=V.setFromMatrixPosition(reticle.matrix).y;beginPlay()}else if(phase==='play')shoot()});
-  session.addEventListener('end',()=>{xrMode=false;phase='menu';playing=false;clearZ();hitSource=null;$('hud').style.display=$('cross').style.display=$('fire').style.display='none';show('AR ended','Marupadi start panna button press pannu.','START AR',startXR)});
-  $('msg').style.display='none';hint('Phone ah nelam nokki kaatu, pachai ring theriyum pothu TAP pannu 👆');
+  session.addEventListener('select',()=>{if(phase==='play')shoot()});
+  session.addEventListener('end',()=>{xrMode=false;phase='menu';playing=false;clearZ();hitSource=null;$('hud').style.display=$('cross').style.display=$('fire').style.display=$('setfloor').style.display='none';baseMark.visible=false;show('AR ended','Marupadi start panna button press pannu.','START AR',startXR)});
+  $('msg').style.display='none';$('setfloor').style.display='block';hint('Floor ah nokki phone ah mella asai 📱 pachai ring theriyum pothu SET FLOOR press pannu. Adhu dhaan zombies base.');
  }catch(e){$('mp').textContent='AR start aagala: '+e.message;$('msg').style.display='flex'}
 }
 async function startLite(){
  try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('v').srcObject=s;$('v').style.display='block'}catch(e){document.body.style.background='linear-gradient(#345,#121)'}
  try{if(DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
  try{ac=new AudioContext()}catch(e){}
- floorY=-1.5;$('msg').style.display='none';beginPlay();
+ floorY=-1.5;base.set(0,-1.5,-3);$('msg').style.display='none';beginPlay();
 }
 (async()=>{
  try{xrOK=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-ar')}catch(e){}
