@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AR Zombie Shooter</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,sans-serif;color:#fff;touch-action:none;user-select:none}
+video,canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+#hud{position:fixed;inset:0;pointer-events:none;padding:env(safe-area-inset-top,0px) 12px 0}
+#top{display:flex;justify-content:space-between;gap:8px;padding-top:10px;font-weight:700;text-shadow:0 1px 3px #000}
+#bar{height:10px;background:#0008;border-radius:5px;overflow:hidden;margin-top:6px}
+#hp{height:100%;width:100%;background:#e33;transition:width .2s}
+#cross{position:fixed;left:50%;top:50%;width:34px;height:34px;margin:-17px;border:2px solid #fff9;border-radius:50%}
+#cross:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;background:#f33;border-radius:50%}
+#fire{position:fixed;right:20px;bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:3px solid #fff;background:#e33c;color:#fff;font-size:18px;font-weight:800;pointer-events:auto}
+#flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .25s}
+#msg{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000c;text-align:center;padding:24px}
+#msg h1{margin:0;font-size:32px}#msg p{margin:0;max-width:380px;opacity:.85}
+#msg button{font-size:20px;font-weight:800;padding:14px 36px;border:0;border-radius:30px;background:#3c3;color:#000}
+</style></head><body>
+<video id="v" playsinline muted autoplay></video>
+<div id="hud">
+ <div id="top"><span id="lv">Level 1</span><span id="kl">Kills 0/8</span></div>
+ <div id="bar"><div id="hp"></div></div>
+</div>
+<div id="cross"></div><div id="flash"></div>
+<button id="fire" style="display:none">FIRE</button>
+<div id="msg"><h1>🧟 AR Zombie Shooter</h1>
+<p>Camera allow pannunga. Phone ah suthi paarunga, zombies ellaa direction layum varum. Crosshair la vechi FIRE press pannunga!</p>
+<button id="go">START</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.body.insertBefore(renderer.domElement,$('hud'));
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(65,1,0.1,100);
+scene.add(cam);
+scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.1));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(2,5,3);scene.add(dl);
+function resize(){renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+
+// Gun
+const gun=new THREE.Group();
+const M=(c)=>new THREE.MeshStandardMaterial({color:c,metalness:.5,roughness:.5});
+const bar=new THREE.Mesh(new THREE.BoxGeometry(.07,.08,.5),M(0x222222));bar.position.set(0,0,-.1);
+const grip=new THREE.Mesh(new THREE.BoxGeometry(.07,.2,.09),M(0x553311));grip.position.set(0,-.13,.08);grip.rotation.x=.25;
+const sight=new THREE.Mesh(new THREE.BoxGeometry(.02,.03,.02),M(0xaaaaaa));sight.position.set(0,.06,-.3);
+const mf=new THREE.Mesh(new THREE.SphereGeometry(.09,8,8),new THREE.MeshBasicMaterial({color:0xffcc33}));mf.position.set(0,0,-.4);mf.visible=false;
+gun.add(bar,grip,sight,mf);gun.position.set(.22,-.2,-.5);cam.add(gun);
+
+// Orientation
+let gyro=false,yaw=0,pitch=0;
+const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)),zee=new THREE.Vector3(0,0,1),eu=new THREE.Euler(),q0=new THREE.Quaternion();
+addEventListener('deviceorientation',e=>{
+ if(e.alpha==null)return;gyro=true;
+ const o=(screen.orientation?screen.orientation.angle:0)*Math.PI/180,d=Math.PI/180;
+ eu.set(e.beta*d,e.alpha*d,-e.gamma*d,'YXZ');cam.quaternion.setFromEuler(eu);
+ cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(zee,-o));
+});
+let drag=null;
+addEventListener('pointerdown',e=>{if(e.target.id!=='fire')drag=[e.clientX,e.clientY]});
+addEventListener('pointerup',()=>drag=null);
+addEventListener('pointermove',e=>{if(gyro||!drag)return;yaw-=(e.clientX-drag[0])*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag[1])*.005));drag=[e.clientX,e.clientY];cam.rotation.set(pitch,yaw,0,'YXZ')});
+
+// Audio
+let ac;function beep(f,d,t='square',v=.15){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+
+// Zombies
+const zombies=[];const GY=-1.5;
+function mk(w,h,d,c){return new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color:c}))}
+function limb(w,h,d,c,x,y){const p=new THREE.Group();const m=mk(w,h,d,c);m.position.y=-h/2;p.add(m);p.position.set(x,y,0);return p}
+function spawn(){
+ const g=new THREE.Group();
+ const body=mk(.5,.7,.25,0x3a5a8a);body.position.y=1.05;
+ const head=new THREE.Mesh(new THREE.SphereGeometry(.2,12,12),new THREE.MeshStandardMaterial({color:0x6fa05a}));head.position.y=1.65;
+ const la=limb(.14,.65,.14,0x6fa05a,-.34,1.38),ra=limb(.14,.65,.14,0x6fa05a,.34,1.38);
+ la.rotation.x=ra.rotation.x=-Math.PI/2.2;
+ const ll=limb(.18,.7,.18,0x2a2a55,-.14,.7),rl=limb(.18,.7,.18,0x2a2a55,.14,.7);
+ g.add(body,head,la,ra,ll,rl);
+ const a=Math.random()*Math.PI*2,r=9+Math.random()*4;
+ g.position.set(Math.sin(a)*r,GY,Math.cos(a)*r);
+ g.userData={hp:2+Math.floor(level/3),speed:.6+level*.12+Math.random()*.3,t:Math.random()*6,la,ra,ll,rl,atk:0,dead:0,head};
+ g.lookAt(0,GY,0);scene.add(g);zombies.push(g);
+}
+const ray=new THREE.Raycaster();
+function shoot(){
+ if(!playing)return;
+ beep(120,.15,'sawtooth',.25);
+ mf.visible=true;gun.position.z=-.4;setTimeout(()=>{mf.visible=false},50);
+ ray.setFromCamera({x:0,y:0},cam);
+ const hits=ray.intersectObjects(zombies.filter(z=>!z.userData.dead),true);
+ if(hits.length){
+  let o=hits[0].object;while(o.parent&&!o.userData.hp)o=o.parent;
+  const u=o.userData;u.hp-=hits[0].object===u.head||hits[0].object.geometry.type==='SphereGeometry'?2:1;
+  o.traverse(m=>{if(m.material&&m.material.emissive){m.material.emissive.setHex(0xff2200);setTimeout(()=>m.material.emissive.setHex(0),90)}});
+  beep(300,.08,'triangle',.2);
+  if(u.hp<=0){u.dead=.001;kills++;updHUD();beep(80,.3,'sawtooth',.25);if(kills>=target)levelUp()}
+ }
+}
+$('fire').addEventListener('pointerdown',e=>{e.preventDefault();shoot()});
+addEventListener('keydown',e=>{if(e.code==='Space')shoot()});
+
+// Game state
+let level=1,kills=0,target=8,health=100,playing=false,spawnT=0,last=0;
+function updHUD(){$('lv').textContent='Level '+level;$('kl').textContent='Kills '+kills+'/'+target;$('hp').style.width=Math.max(0,health)+'%'}
+function clearZ(){zombies.splice(0).forEach(z=>scene.remove(z))}
+function levelUp(){
+ playing=false;clearZ();level++;kills=0;target=5+level*3;health=Math.min(100,health+30);updHUD();
+ show('✅ Level Complete!','Adutha level: Level '+level+' — zombies innum fast ah varum!','NEXT LEVEL',()=>{playing=true});
+}
+function gameOver(){
+ playing=false;clearZ();
+ show('💀 Game Over','Level '+level+' la zombies unna pidichiduchu. Marupadi try pannu!','RETRY',()=>{level=1;kills=0;target=8;health=100;updHUD();playing=true});
+}
+function show(t,p,b,cb){const m=$('msg');m.querySelector('h1').textContent=t;m.querySelector('p').textContent=p;const btn=$('go');btn.textContent=b;btn.onclick=()=>{m.style.display='none';cb()};m.style.display='flex'}
+
+function loop(t){
+ requestAnimationFrame(loop);
+ const dt=Math.min((t-last)/1000||0,.05);last=t;
+ gun.position.z+=(-.5-gun.position.z)*Math.min(1,dt*12);
+ if(playing){
+  spawnT-=dt;
+  const alive=zombies.filter(z=>!z.userData.dead).length;
+  if(spawnT<=0&&alive<3+level){spawn();spawnT=Math.max(.8,3-level*.25)}
+ }
+ for(let i=zombies.length-1;i>=0;i--){
+  const z=zombies[i],u=z.userData;u.t+=dt*4;
+  if(u.dead){u.dead+=dt;z.rotation.x=Math.max(-Math.PI/2,z.rotation.x-dt*4);z.position.y=GY+.1*Math.min(1,u.dead);if(u.dead>1.5){scene.remove(z);zombies.splice(i,1)}continue}
+  if(!playing)continue;
+  const dx=-z.position.x,dz=-z.position.z,dist=Math.hypot(dx,dz);
+  if(dist>1.6){
+   z.position.x+=dx/dist*u.speed*dt;z.position.z+=dz/dist*u.speed*dt;
+   u.ll.rotation.x=Math.sin(u.t)*.6;u.rl.rotation.x=-Math.sin(u.t)*.6;
+   u.la.rotation.x=-Math.PI/2.2+Math.sin(u.t)*.15;u.ra.rotation.x=-Math.PI/2.2-Math.sin(u.t)*.15;
+   z.position.y=GY+Math.abs(Math.sin(u.t))*.04;
+  }else{
+   u.atk+=dt;const s=Math.sin(u.atk*9);
+   u.la.rotation.x=-Math.PI/2+s*.7;u.ra.rotation.x=-Math.PI/2-s*.7;z.rotation.x=.25+Math.abs(s)*.2;
+   if(u.atk>=1){u.atk=0;health-=5+level;updHUD();beep(70,.2,'sawtooth',.3);$('flash').style.opacity=.55;setTimeout(()=>$('flash').style.opacity=0,200);if(navigator.vibrate)navigator.vibrate(120);if(health<=0){gameOver();return}}
+  }
+ }
+ renderer.render(scene,cam);
+}
+requestAnimationFrame(loop);
+
+async function start(){
+ try{
+  const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+  $('v').srcObject=s;
+ }catch(e){document.body.style.background='linear-gradient(#345,#121)';alert('Camera open aagala. Page ah full screen / own browser la open pannu, camera permission kudu. Ippo normal background la game run aagum.')}
+ try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
+ try{ac=new AudioContext()}catch(e){}
+ $('msg').style.display='none';$('fire').style.display='block';updHUD();playing=true;
+}
+$('go').onclick=start;
+</script></body></html>
